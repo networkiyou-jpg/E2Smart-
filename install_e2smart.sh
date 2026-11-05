@@ -6,7 +6,6 @@
 
 # ====== EDIT THIS LINE: the address where you uploaded the IPK ======
 BASE_URL="https://raw.githubusercontent.com/networkiyou-jpg/E2Smart-/main"
-IPK="enigma2-plugin-extensions-e2smartbiss_3.1.5_all.ipk"
 SHA256=""        # optional: sha256 of the IPK (sha256sum file.ipk); empty = no check
 # =====================================================================
 
