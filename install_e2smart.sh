@@ -1,68 +1,132 @@
-#!/bin/sh
-# E2Smart installer for Enigma2 receivers (OpenATV and similar). Run it from Telnet/SSH:
-#   wget -q -O - http://YOUR-SERVER/install_e2smart.sh | sh
-# or copy this file and the .ipk to /tmp and run:  sh /tmp/install_e2smart.sh
-# Developer: mouad - Telegram @Kingsharing1
 
-# ====== EDIT THIS LINE: the address where you uploaded the IPK ======
+#!/bin/sh
+# ==========================================================
+# E2Smart v3.1.5 - Enigma2 Installer
+# Developer: mouad
+# Telegram: @Kingsharing1
+# GitHub: networkiyou-jpg/E2Smart-
+# ==========================================================
+
+# GitHub download settings
 BASE_URL="https://raw.githubusercontent.com/networkiyou-jpg/E2Smart-/main"
-SHA256=""        # optional: sha256 of the IPK (sha256sum file.ipk); empty = no check
-# =====================================================================
+IPK="enigma2-plugin-extensions-e2smartbiss_3.1.5_all.ipk"
+SHA256=""
 
 PKG="enigma2-plugin-extensions-e2smartbiss"
+PLUGIN_DIR="/usr/lib/enigma2/python/Plugins/Extensions/BISSManagerPRO"
 TMP="/tmp/$IPK"
 
-say() { echo "[E2Smart] $*"; }
-die() { echo "[E2Smart] ERROR: $*"; exit 1; }
+say() {
+    echo "[E2Smart] $*"
+}
 
+die() {
+    say "ERROR: $*"
+    exit 1
+}
+
+# Remove option
 if [ "$1" = "remove" ]; then
-    say "Removing E2Smart (your settings are kept) ..."
-    opkg remove "$PKG" || die "remove failed"
-    say "Done. Restarting the interface ..."
-    sleep 2; killall -9 enigma2
+    command -v opkg >/dev/null 2>&1 || die "opkg not found."
+    [ "$(id -u)" = "0" ] || die "Run as root."
+
+    say "Removing E2Smart..."
+    opkg remove "$PKG" || die "Removal failed."
+
+    say "Removal completed."
+    say "Restarting Enigma2..."
+    sleep 2
+    killall -9 enigma2
     exit 0
 fi
 
-command -v opkg >/dev/null 2>&1 || die "opkg not found: this is not an Enigma2 image."
-[ "$(id -u)" = "0" ] || die "run as root."
+# System checks
+command -v opkg >/dev/null 2>&1 || die "Not an Enigma2 receiver."
+[ "$(id -u)" = "0" ] || die "Run this installer as root."
 
-# 1) get the IPK: already next to the script / in /tmp / USB, else download it
-FOUND=""
-for d in /tmp /media/usb /media/hdd /media/mmc /media/usb/ipk "$(pwd)"; do
-    [ -f "$d/$IPK" ] && FOUND="$d/$IPK" && break
-done
-if [ -n "$FOUND" ]; then
-    say "Found $FOUND"
-    [ "$FOUND" = "$TMP" ] || cp "$FOUND" "$TMP" || die "cannot copy the file to /tmp"
-else
-    say "Downloading $IPK ..."
-    rm -f "$TMP"
-    wget -q -O "$TMP" "$BASE_URL/$IPK" 2>/dev/null || wget -q --no-check-certificate -O "$TMP" "$BASE_URL/$IPK" 2>/dev/null \
-        || curl -fsS -o "$TMP" "$BASE_URL/$IPK" 2>/dev/null || die "download failed. Check the internet connection."
-fi
-[ -s "$TMP" ] || die "the file is empty."
+command -v wget >/dev/null 2>&1 || command -v curl >/dev/null 2>&1 || die "wget or curl is required."
 
-# 2) integrity
-if [ -n "$SHA256" ]; then
-    SUM="$(sha256sum "$TMP" 2>/dev/null | cut -d' ' -f1)"
-    [ "$SUM" = "$SHA256" ] || die "the file is damaged (checksum mismatch). Run the command again."
-fi
+say "E2Smart installer started."
 
-# 3) free space (needs about 5 MB)
+# Check free space
 FREE="$(df -k / 2>/dev/null | awk 'NR==2 {print $4}')"
-[ -n "$FREE" ] && [ "$FREE" -lt 6000 ] && die "not enough free space on the receiver (need ~6 MB)."
 
-# 4) install (upgrades in place; settings are kept)
-say "Installing ..."
-opkg install --force-reinstall "$TMP" || opkg install --force-reinstall --force-depends "$TMP" || die "installation failed."
+if [ -n "$FREE" ] && [ "$FREE" -lt 6000 ]; then
+    die "Not enough free space. At least 6 MB required."
+fi
+
+# Locate existing IPK
+FOUND=""
+
+for d in /tmp /media/usb /media/hdd /media/mmc /media/usb/ipk "$(pwd)"; do
+    if [ -f "$d/$IPK" ]; then
+        FOUND="$d/$IPK"
+        break
+    fi
+done
+
+# Download IPK if not found locally
+if [ -n "$FOUND" ]; then
+    say "Found local package: $FOUND"
+
+    if [ "$FOUND" != "$TMP" ]; then
+        cp "$FOUND" "$TMP" || die "Cannot copy IPK to /tmp."
+    fi
+else
+    say "Downloading E2Smart package..."
+
+    rm -f "$TMP"
+
+    if command -v wget >/dev/null 2>&1; then
+        wget -q -O "$TMP" "$BASE_URL/$IPK" || die "Download failed."
+    else
+        curl -fL -sS -o "$TMP" "$BASE_URL/$IPK" || die "Download failed."
+    fi
+fi
+
+# Verify downloaded file
+[ -s "$TMP" ] || die "IPK file is empty."
+
+# Check IPK archive format
+if command -v ar >/dev/null 2>&1; then
+    ar t "$TMP" >/dev/null 2>&1 || die "Invalid IPK archive."
+else
+    say "Warning: ar command unavailable; archive format not checked."
+fi
+
+# Optional SHA256 verification
+if [ -n "$SHA256" ]; then
+    command -v sha256sum >/dev/null 2>&1 || die "sha256sum unavailable."
+
+    SUM="$(sha256sum "$TMP" | awk '{print $1}')"
+
+    [ "$SUM" = "$SHA256" ] || die "SHA256 checksum mismatch."
+fi
+
+# Install package
+say "Installing E2Smart..."
+
+if ! opkg install --force-reinstall "$TMP"; then
+    opkg install --force-reinstall --force-depends "$TMP" || die "Installation failed."
+fi
+
+# Verify installation
+if [ -d "$PLUGIN_DIR" ]; then
+    say "E2Smart installed successfully."
+else
+    say "WARNING: Expected plugin directory not found."
+    say "Check the actual plugin installation path."
+    exit 1
+fi
+
+# Cleanup
 rm -f "$TMP"
 
-if [ -d /usr/lib/enigma2/python/Plugins/Extensions/BISSManagerPRO ]; then
-    say "Installed OK."
-else
-    die "installed, but the plugin folder was not found."
-fi
+# Restart Enigma2 interface
+say "Installation completed."
+say "Restarting Enigma2 in 5 seconds..."
+sleep 5
 
-say "Restarting the interface in 3 seconds ... (then open: Menu > Plugins > E2Smart)"
-sleep 3
 killall -9 enigma2
+
+exit 0
